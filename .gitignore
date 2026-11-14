@@ -1,0 +1,7 @@
+cache/
+libraries/
+versions/
+logs/
+.console_history
+*.lock
+crash-reports/
