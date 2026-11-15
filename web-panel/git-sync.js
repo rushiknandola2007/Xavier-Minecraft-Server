@@ -1,5 +1,6 @@
-// Unified Git Auto-Pull & Auto-Push engine for the Minecraft server panel.
+// Manual Git Sync engine for the Minecraft server panel.
 // Single-flight locked so git operations never collide on .git/index.lock.
+// All sync is manual-only (⬇ Pull / ⬆ Push buttons) — nothing runs automatically.
 'use strict';
 
 const { execFile } = require('child_process');
@@ -11,7 +12,7 @@ const WEB_PANEL_DIR = __dirname;
 const AUDIT_LOG_PATH = path.join(__dirname, 'logs', 'command-audit.log');
 
 let isSyncing = false;
-let lastStatus = { state: 'idle', message: 'Git sync ready' };
+let lastStatus = { state: 'ready', message: 'Git: Ready (Manual Sync)' };
 const statusListeners = [];
 
 function onStatus(cb) {
@@ -65,26 +66,15 @@ function git(args, timeoutMs = 15000, env = null) {
   });
 }
 
-function isOfflineError(err) {
-  const text = `${err.message || ''} ${err.stderr || ''}`.toLowerCase();
-  return text.includes('could not resolve') ||
-         text.includes('timed out') ||
-         text.includes('connection') ||
-         text.includes('network') ||
-         text.includes('unable to access') ||
-         text.includes('failed to connect') ||
-         text.includes('the remote end hung up');
+const GIT_ENV = { GIT_TERMINAL_PROMPT: '0' };
+const GIT_TIMEOUT = 120000;
+
+function firstLine(text) {
+  return (text || '').toString().split(/\r?\n/).map(l => l.trim()).filter(Boolean)[0] || '';
 }
 
-async function checkOnline() {
-  try {
-    await git(['ls-remote', '--heads', 'origin', 'HEAD'], 8000);
-    return true;
-  } catch (_) {
-    return false;
-  }
-}
-
+// ⬇ Pull — manual only. Refuses to run while the server is active or when
+// local uncommitted changes exist, so world saves are never overwritten.
 async function pullLatest(isServerActive) {
   if (isSyncing) {
     return { state: 'skipped', message: 'Sync already in progress' };
@@ -94,48 +84,33 @@ async function pullLatest(isServerActive) {
   }
 
   isSyncing = true;
+  report('pulling', 'Pulling latest from GitHub...');
   try {
-    // Never overwrite uncommitted local work
+    audit('git status --porcelain');
     const dirty = await git(['status', '--porcelain']);
     if (dirty) {
-      return report('dirty', 'Local unsaved changes — pull skipped');
+      return report('dirty', 'Unsaved local changes — commit/push or discard before pulling');
     }
 
-    if (!(await checkOnline())) {
-      return report('offline', 'Offline — using local files');
+    audit('git pull origin main');
+    const out = await git(['pull', 'origin', 'main'], GIT_TIMEOUT, GIT_ENV);
+    audit(`git pull origin main => ${firstLine(out) || 'ok'}`);
+
+    if (/already up[ -]?to[ -]?date/i.test(out)) {
+      return report('synced', 'Already up to date');
     }
-
-    const beforeHash = await git(['rev-parse', 'HEAD']);
-    await git(['pull', '--ff-only'], 15000);
-    const afterHash = await git(['rev-parse', 'HEAD']);
-
-    // If panel dependencies changed, reinstall production deps
-    if (beforeHash !== afterHash) {
-      const changed = await git(['diff', '--name-only', beforeHash, afterHash]);
-      if (changed.split(/\r?\n/).includes('web-panel/package.json')) {
-        await new Promise((resolve, reject) => {
-          execFile('npm', ['install', '--omit=dev'], {
-            cwd: WEB_PANEL_DIR,
-            timeout: 120000,
-            windowsHide: true,
-            shell: true
-          }, (err) => (err ? reject(err) : resolve()));
-        });
-      }
-    }
-
-    const short = (await git(['rev-parse', '--short', 'HEAD'])).slice(0, 7);
-    return report('synced', `Synced from GitHub (${short})`);
+    return report('synced', 'Pulled latest from main');
   } catch (err) {
-    if (isOfflineError(err)) {
-      return report('offline', 'Offline — using local files');
-    }
-    return report('error', `Pull failed: ${(err.stderr || err.message || '').toString().split('\n')[0]}`);
+    const detail = firstLine(err.stderr) || firstLine(err.message) || 'unknown error';
+    audit(`git pull origin main FAILED: ${detail}`);
+    return report('error', detail);
   } finally {
     isSyncing = false;
   }
 }
 
+// ⬆ Push — manual only. Stages everything, commits world/server saves, then
+// pushes to origin/main. Never prompts for credentials.
 async function pushLatest(reason, isServerActive) {
   if (isSyncing) {
     return { state: 'skipped', message: 'Sync already in progress' };
@@ -145,47 +120,36 @@ async function pushLatest(reason, isServerActive) {
   }
 
   isSyncing = true;
-  report('pushing', 'Pushing world & server changes to GitHub...');
+  report('pushing', 'Pushing to GitHub...');
   try {
+    audit('git add -A');
+    await git(['add', '-A']);
+
+    audit('git status --porcelain');
     const porcelain = await git(['status', '--porcelain']);
-    if (!porcelain) {
-      let ahead = '0';
-      try {
-        ahead = await git(['rev-list', '--count', '@{u}..HEAD']);
-      } catch (_) {}
-      if (ahead === '0') {
-        return report('synced', 'Already up to date on GitHub');
-      }
+    if (porcelain) {
+      const stamp = timestamp();
+      // Use the machine's configured identity when present; fall back to an
+      // inline identity so the commit still works on a friend's PC.
+      let configured = '';
+      try { configured = await git(['config', 'user.name']); } catch (_) {}
+      const commitArgs = configured
+        ? ['commit', '-m', `Save server & world [${stamp}]`]
+        : ['-c', 'user.name=Minecraft Host', '-c', 'user.email=host@local',
+           'commit', '-m', `Save server & world [${stamp}]`];
+      audit(`git ${commitArgs.join(' ')}`);
+      await git(commitArgs, 20000);
     }
 
-    // Always commit locally first — world saves must never be lost to a network drop
-    await git(['add', '-A']);
-    const stamp = timestamp();
-    await git(['commit', '-m', `Auto-save server & world (${reason}) [${stamp}]`], 20000);
-
-    // Then push directly; never prompt for credentials
-    await git(['push'], 120000, { GIT_TERMINAL_PROMPT: '0' });
+    audit('git push -u origin main');
+    await git(['push', '-u', 'origin', 'main'], GIT_TIMEOUT, GIT_ENV);
 
     const short = (await git(['rev-parse', '--short', 'HEAD'])).slice(0, 7);
-    return report('pushed', `Pushed latest save to GitHub (${short})`);
+    return report('pushed', `Pushed to main (${short})`);
   } catch (err) {
-    const msg = (err.stderr || err.message || '').toString();
-    // Commit may fail when there is genuinely nothing new to commit
-    if (msg.includes('nothing to commit')) {
-      return report('synced', 'Already up to date on GitHub');
-    }
-    // Only classify as offline for real network/DNS failures
-    const lower = msg.toLowerCase();
-    if (lower.includes('could not resolve') ||
-        lower.includes('failed to connect') ||
-        lower.includes('connection timed out') ||
-        lower.includes('unable to access') ||
-        lower.includes('network is unreachable') ||
-        lower.includes('connection refused')) {
-      return report('offline', 'Offline — changes saved locally only');
-    }
-    audit(`Push failed details: ${msg.split('\n').slice(0, 3).join(' | ')}`);
-    return report('error', 'Push failed — check logs');
+    const detail = firstLine(err.stderr) || firstLine(err.message) || 'unknown error';
+    audit(`git push FAILED: ${detail}`);
+    return report('error', detail);
   } finally {
     isSyncing = false;
   }
