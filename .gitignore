@@ -5,3 +5,11 @@ logs/
 .console_history
 *.lock
 crash-reports/
+*.log
+*.gz
+web-panel/node_modules/
+web-panel/.env
+web-panel/logs/
+bridge-plugin/target/
+plugins/ServerPanelBridge/config.yml
+plugins/.paper-remapped/

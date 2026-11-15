@@ -1,0 +1,965 @@
+<!DOCTYPE html>
+<html lang="en" class="dark h-full bg-[#0a0c10]">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Minecraft Server Manager - Paper 1.21.1</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            brand: '#10b981',
+            terminal: '#090b10',
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    /* Custom scrollbars */
+    #console-output::-webkit-scrollbar,
+    .custom-scroll::-webkit-scrollbar {
+      width: 8px;
+      height: 8px;
+    }
+    #console-output::-webkit-scrollbar-track,
+    .custom-scroll::-webkit-scrollbar-track {
+      background: #090b10;
+    }
+    #console-output::-webkit-scrollbar-thumb,
+    .custom-scroll::-webkit-scrollbar-thumb {
+      background: #1e2430;
+      border-radius: 4px;
+    }
+    #console-output::-webkit-scrollbar-thumb:hover,
+    .custom-scroll::-webkit-scrollbar-thumb:hover {
+      background: #2e3646;
+    }
+
+    /* Minecraft Inventory Slot Styles */
+    .inv-slot {
+      width: 44px;
+      height: 44px;
+      background-color: #141722;
+      border: 2px solid #262c3c;
+      border-radius: 6px;
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      user-select: none;
+      transition: all 0.15s ease;
+    }
+    @media (min-width: 640px) {
+      .inv-slot {
+        width: 48px;
+        height: 48px;
+      }
+    }
+    .inv-slot:hover {
+      border-color: #10b981;
+      background-color: #1c2232;
+    }
+    .inv-slot.drag-over {
+      border-color: #34d399 !important;
+      background-color: rgba(6, 78, 59, 0.45) !important;
+      box-shadow: 0 0 12px rgba(52, 211, 153, 0.5);
+    }
+    .inv-slot.dragging {
+      opacity: 0.4;
+    }
+  </style>
+</head>
+<body class="h-full flex flex-col text-zinc-100 font-sans antialiased overflow-hidden select-none bg-[#0a0c10]">
+
+  <!-- Main App Layout -->
+  <div id="app-container" class="h-full flex flex-col flex-1 min-h-0">
+    
+    <!-- Top Header Bar -->
+    <header class="bg-zinc-900/90 border-b border-zinc-800 px-4 py-2.5 flex flex-wrap items-center justify-between gap-3 shadow-sm z-10">
+      
+      <!-- Left: Branding & Status Badge -->
+      <div class="flex items-center space-x-3">
+        <div class="flex items-center space-x-2">
+          <span id="header-brand" class="text-base font-bold tracking-tight text-white flex items-center gap-2 cursor-default select-none">
+            <span class="text-emerald-400">⛏</span> Paper 1.21.1
+          </span>
+          <span id="badge-status" class="px-2.5 py-0.5 rounded-full text-xs font-semibold border flex items-center gap-1.5 bg-zinc-800 border-zinc-700 text-zinc-300">
+            <span id="badge-dot" class="w-2 h-2 rounded-full bg-zinc-500"></span>
+            <span id="badge-text">Offline</span>
+          </span>
+        </div>
+
+        <!-- Subtle Lock button (visible only while Admin Mode is active) -->
+        <button
+          id="btn-admin-lock"
+          class="hidden px-2.5 py-1 bg-zinc-800/70 hover:bg-zinc-700 text-zinc-400 hover:text-white rounded-md text-[11px] transition-colors"
+          title="Lock Admin Mode"
+        >
+          🔒 Lock
+        </button>
+
+        <!-- Detected Server Address (Tailscale IP + port) with Copy -->
+        <div class="flex items-center space-x-2 bg-emerald-950/40 border border-emerald-800/50 px-2.5 py-1 rounded-md">
+          <span class="text-[10px] font-semibold uppercase text-emerald-400/80">IP:</span>
+          <span id="header-server-addr" class="font-mono text-xs font-bold text-emerald-300">--:--</span>
+          <button
+            id="btn-copy-header-ip"
+            class="px-1.5 py-0.5 text-[10px] bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded transition-colors"
+            title="Copy server address"
+          >
+            Copy
+          </button>
+        </div>
+      </div>
+
+      <!-- Center: Action Controls (Friend View sees only Start/Stop; Admin sees Restart/Kill too) -->
+      <div class="flex items-center space-x-2">
+        <button
+          id="btn-start"
+          class="px-3.5 py-1.5 bg-emerald-600/90 hover:bg-emerald-500 text-white rounded-md text-xs font-medium transition-all shadow disabled:opacity-30 disabled:cursor-not-allowed flex items-center space-x-1"
+        >
+          <span>▶</span>
+          <span>Start Server</span>
+        </button>
+        <button
+          id="btn-stop"
+          class="px-3.5 py-1.5 bg-amber-600/90 hover:bg-amber-500 text-white rounded-md text-xs font-medium transition-all shadow disabled:opacity-30 disabled:cursor-not-allowed flex items-center space-x-1"
+        >
+          <span>⏹</span>
+          <span>Stop Server</span>
+        </button>
+        
+        <!-- Lifecycle Actions -->
+        <button
+          id="btn-restart"
+          class="hidden px-3 py-1.5 bg-sky-600/90 hover:bg-sky-500 text-white rounded-md text-xs font-medium transition-all shadow disabled:opacity-30 disabled:cursor-not-allowed flex items-center space-x-1"
+        >
+          <span>↻</span>
+          <span>Restart</span>
+        </button>
+        <button
+          id="btn-kill"
+          class="hidden px-3 py-1.5 bg-red-600/90 hover:bg-red-500 text-white rounded-md text-xs font-medium transition-all shadow disabled:opacity-30 disabled:cursor-not-allowed flex items-center space-x-1"
+        >
+          <span>⚡</span>
+          <span>Force Kill</span>
+        </button>
+      </div>
+
+      <!-- Right: System Metrics Quick Readout -->
+      <div class="flex items-center space-x-3 text-xs">
+        <div class="hidden sm:flex items-center space-x-3 bg-zinc-950/70 border border-zinc-800/80 px-3 py-1 rounded-md">
+          <div title="Server Process Uptime" class="flex items-center space-x-1 text-zinc-300">
+            <span class="text-zinc-500">Uptime:</span>
+            <span id="stat-uptime" class="font-mono text-emerald-400">00:00:00</span>
+          </div>
+          <span class="text-zinc-700">|</span>
+          <div title="System RAM Usage" class="flex items-center space-x-1 text-zinc-300">
+            <span class="text-zinc-500">RAM:</span>
+            <span id="stat-ram" class="font-mono text-zinc-200">-- / --</span>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <!-- Navigation Tab Bar (hidden until Admin Mode is unlocked) -->
+    <nav id="admin-nav-bar" class="hidden bg-zinc-900 border-b border-zinc-800 px-4 flex items-center space-x-1 overflow-x-auto text-xs z-10 shrink-0">
+      <button
+        id="tab-btn-console"
+        data-target="tab-content-console"
+        class="tab-nav-btn px-4 py-2.5 font-medium border-b-2 border-emerald-500 text-emerald-400 flex items-center space-x-2 transition-colors"
+      >
+        <span>&gt;_</span>
+        <span>Server &amp; Console</span>
+      </button>
+
+      <button
+        id="tab-btn-properties"
+        data-target="tab-content-properties"
+        class="tab-nav-btn px-4 py-2.5 font-medium border-b-2 border-transparent text-zinc-400 hover:text-zinc-200 flex items-center space-x-2 transition-colors"
+      >
+        <span>⚙</span>
+        <span>Properties &amp; Plugins</span>
+      </button>
+
+      <button
+        id="tab-btn-players"
+        data-target="tab-content-players"
+        class="tab-nav-btn px-4 py-2.5 font-medium border-b-2 border-transparent text-zinc-400 hover:text-zinc-200 flex items-center space-x-2 transition-colors"
+      >
+        <span>👤</span>
+        <span>Connected Players</span>
+        <span id="tab-badge-players" class="px-1.5 py-0.2 rounded-full text-[10px] bg-zinc-800 text-zinc-300 font-mono">0</span>
+      </button>
+    </nav>
+
+    <!-- Main Views Container -->
+    <main class="flex-1 min-h-0 relative flex flex-col bg-terminal">
+
+      <!-- ================================================================= -->
+      <!-- TAB 1: DEFAULT FRIEND SCREEN (Always Active & Visible by Default) -->
+      <!-- ================================================================= -->
+      <section id="tab-content-overview" class="tab-pane flex-1 min-h-0 flex flex-col p-4 sm:p-8 overflow-y-auto custom-scroll">
+        <div class="max-w-4xl w-full mx-auto space-y-6 my-auto">
+          
+          <!-- Big Server Status Hero Card -->
+          <div class="bg-zinc-900/80 border-2 border-zinc-800/80 rounded-2xl p-6 sm:p-8 shadow-2xl relative overflow-hidden">
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-zinc-800/80 pb-6">
+              <div>
+                <span class="text-xs font-semibold uppercase tracking-wider text-emerald-400">Minecraft Local Server</span>
+                <h1 class="text-2xl sm:text-3xl font-extrabold text-white mt-1 tracking-tight">Paper 1.21.1 Instance</h1>
+                <p id="friend-motd" class="text-xs text-zinc-400 mt-1 font-mono">A Minecraft Server</p>
+              </div>
+
+              <!-- Main Status Indicator Banner -->
+              <div class="flex items-center space-x-3 bg-zinc-950/80 border border-zinc-800 px-4 py-2.5 rounded-xl">
+                <span id="hero-status-dot" class="w-3.5 h-3.5 rounded-full bg-zinc-500"></span>
+                <div class="flex flex-col">
+                  <span class="text-[10px] font-semibold uppercase text-zinc-500">Server State</span>
+                  <span id="hero-status-text" class="text-sm font-bold text-zinc-200">Offline</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Server Specs Readout Grid -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 py-6">
+              
+              <!-- Card 1: Server IP / Port (With Copy Button) -->
+              <div class="bg-zinc-950/60 border border-zinc-800/70 p-4 rounded-xl flex flex-col justify-between">
+                <span class="text-[11px] font-medium text-zinc-400">Server Address</span>
+                <div class="flex items-center justify-between mt-2">
+                  <span id="friend-server-addr" class="font-mono text-sm font-bold text-emerald-400">127.0.0.1:25565</span>
+                  <button
+                    id="btn-copy-ip"
+                    class="p-1 px-2 text-[10px] bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded transition-colors"
+                    title="Copy server address to clipboard"
+                  >
+                    Copy
+                  </button>
+                </div>
+              </div>
+
+              <!-- Card 2: Players Online -->
+              <div class="bg-zinc-950/60 border border-zinc-800/70 p-4 rounded-xl flex flex-col justify-between">
+                <span class="text-[11px] font-medium text-zinc-400">Online Players</span>
+                <div class="mt-2">
+                  <span id="friend-player-count" class="font-mono text-lg font-bold text-white">0</span>
+                  <span id="friend-max-players" class="text-xs text-zinc-500 font-mono">/ 20</span>
+                </div>
+              </div>
+
+              <!-- Card 3: RAM Memory -->
+              <div class="bg-zinc-950/60 border border-zinc-800/70 p-4 rounded-xl flex flex-col justify-between">
+                <span class="text-[11px] font-medium text-zinc-400">System RAM Usage</span>
+                <div class="mt-2">
+                  <span id="friend-ram-usage" class="font-mono text-sm font-bold text-zinc-200">-- / --</span>
+                  <span id="friend-ram-pct" class="text-[11px] text-zinc-500 font-mono">(--%)</span>
+                </div>
+              </div>
+
+              <!-- Card 4: Server Uptime -->
+              <div class="bg-zinc-950/60 border border-zinc-800/70 p-4 rounded-xl flex flex-col justify-between">
+                <span class="text-[11px] font-medium text-zinc-400">Active Uptime</span>
+                <div class="mt-2">
+                  <span id="friend-uptime" class="font-mono text-lg font-bold text-sky-400">00:00:00</span>
+                </div>
+              </div>
+
+            </div>
+
+            <!-- Git Sync Status & Manual Controls -->
+            <div class="pt-4 border-t border-zinc-800/80 flex flex-col sm:flex-row items-center justify-between gap-3">
+              <div class="flex items-center space-x-2 min-w-0">
+                <span id="git-status-pill" class="px-2.5 py-1 rounded-full text-[11px] font-semibold border bg-zinc-800 border-zinc-700 text-zinc-400 whitespace-nowrap">Git: idle</span>
+                <span id="git-status-text" class="text-[11px] text-zinc-500 truncate">Git sync ready</span>
+              </div>
+              <div class="flex items-center space-x-2">
+                <button
+                  id="btn-git-pull"
+                  class="px-3 py-1.5 bg-sky-700/80 hover:bg-sky-600 text-white rounded-lg text-xs font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  ⬇ Pull
+                </button>
+                <button
+                  id="btn-git-push"
+                  class="px-3 py-1.5 bg-violet-700/80 hover:bg-violet-600 text-white rounded-lg text-xs font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  ⬆ Push
+                </button>
+              </div>
+            </div>
+
+            <!-- Big Main Control Buttons for Friends -->
+            <div class="pt-4 flex flex-col sm:flex-row items-center justify-between gap-4">
+              <div class="text-xs text-zinc-400 flex items-center space-x-2">
+                <span>ℹ️</span>
+                <span>Click <strong>Start Server</strong> to boot Minecraft in the background. Stop gracefully before closing.</span>
+              </div>
+
+              <div class="flex items-center space-x-3 w-full sm:w-auto">
+                <button
+                  id="btn-hero-start"
+                  class="flex-1 sm:flex-none px-6 py-2.5 bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white font-bold rounded-xl text-sm transition-all shadow-lg shadow-emerald-950/50 flex items-center justify-center space-x-2 disabled:opacity-30 disabled:cursor-not-allowed"
+                >
+                  <span>▶</span>
+                  <span>Start Server</span>
+                </button>
+                <button
+                  id="btn-hero-stop"
+                  class="flex-1 sm:flex-none px-6 py-2.5 bg-amber-600 hover:bg-amber-500 active:bg-amber-700 text-white font-bold rounded-xl text-sm transition-all shadow-lg shadow-amber-950/50 flex items-center justify-center space-x-2 disabled:opacity-30 disabled:cursor-not-allowed"
+                >
+                  <span>⏹</span>
+                  <span>Stop Server</span>
+                </button>
+              </div>
+            </div>
+
+          </div>
+
+        </div>
+      </section>
+
+      <!-- ================================================================= -->
+      <!-- TAB 2: LIVE CONSOLE (Admin Only - Hidden by Default)              -->
+      <!-- ================================================================= -->
+      <section id="tab-content-console" class="tab-pane hidden flex-1 min-h-0 flex flex-col p-2 sm:p-3">
+        <div class="flex-1 flex flex-col min-h-0 bg-[#07090e] border border-zinc-800/80 rounded-lg overflow-hidden shadow-2xl">
+          
+          <!-- Console Subheader Toolbar -->
+          <div class="flex items-center justify-between px-3 py-1.5 bg-zinc-900/60 border-b border-zinc-800/60 text-xs text-zinc-400">
+            <div class="flex items-center space-x-2">
+              <span class="font-mono text-zinc-300 font-semibold tracking-wide flex items-center gap-1.5">
+                <span class="w-2 h-2 rounded-full bg-emerald-400"></span> Live Console
+              </span>
+              <span id="log-count" class="text-[11px] text-zinc-500 font-mono">(0 lines)</span>
+            </div>
+            <div class="flex items-center space-x-4">
+              <label class="flex items-center space-x-1.5 cursor-pointer hover:text-zinc-200">
+                <input type="checkbox" id="toggle-autoscroll" checked class="w-3.5 h-3.5 rounded bg-zinc-950 border-zinc-700 text-emerald-500 focus:ring-0">
+                <span class="text-[11px]">Auto-scroll</span>
+              </label>
+              <button
+                id="btn-command-logs"
+                class="text-[11px] px-2 py-0.5 bg-zinc-800/60 hover:bg-zinc-700 hover:text-white rounded transition-colors"
+              >
+                Logs
+              </button>
+              <button
+                id="btn-clear-console"
+                class="text-[11px] px-2 py-0.5 bg-zinc-800/60 hover:bg-zinc-700 hover:text-white rounded transition-colors"
+              >
+                Clear
+              </button>
+            </div>
+          </div>
+
+          <!-- Scrollable Output Canvas -->
+          <div
+            id="console-output"
+            class="flex-1 overflow-y-auto p-3 font-mono text-xs sm:text-[13px] leading-relaxed space-y-0.5 select-text"
+          >
+            <!-- Log lines will be appended here dynamically -->
+          </div>
+
+          <!-- Console Command Input Bar -->
+          <form id="console-form" class="flex items-center bg-zinc-900/90 border-t border-zinc-800 p-2 gap-2">
+            <span class="text-emerald-400 font-mono font-bold pl-2 text-sm select-none">&gt;</span>
+            <input
+              type="text"
+              id="console-input"
+              placeholder="Type server command (e.g. list, help, say Hello, op player)..."
+              class="flex-1 bg-transparent border-0 text-white text-xs sm:text-sm font-mono placeholder-zinc-500 focus:outline-none focus:ring-0 px-2 py-1 disabled:opacity-40 disabled:cursor-not-allowed"
+              autocomplete="off"
+              spellcheck="false"
+            >
+            <span id="console-offline-hint" class="hidden text-[11px] text-zinc-500 font-mono whitespace-nowrap">Server offline — start it to send commands</span>
+            <button
+              type="submit"
+              id="btn-send-command"
+              class="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white rounded font-medium text-xs transition-colors font-mono flex items-center space-x-1 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              <span>Send</span>
+              <span>↵</span>
+            </button>
+          </form>
+
+        </div>
+      </section>
+
+      <!-- ================================================================= -->
+      <!-- TAB 3: ONLINE PLAYERS (Admin Only - Hidden by Default)           -->
+      <!-- ================================================================= -->
+      <section id="tab-content-players" class="tab-pane hidden flex-1 min-h-0 flex flex-col p-4 sm:p-6 overflow-y-auto custom-scroll">
+        <div class="max-w-6xl w-full mx-auto space-y-4">
+          <div class="flex flex-wrap items-center justify-between gap-3 bg-zinc-900/70 border border-zinc-800/80 p-4 rounded-xl">
+            <div>
+              <h2 class="text-base font-bold text-white flex items-center gap-2">
+                <span>👤</span> Currently Online Players
+              </h2>
+              <p class="text-xs text-zinc-400">Tracked in real time via server logs and silent status queries.</p>
+            </div>
+            <div class="flex items-center space-x-2">
+              <button
+                id="btn-refresh-players"
+                class="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs rounded-lg transition-colors flex items-center space-x-1"
+              >
+                <span>↻</span>
+                <span>Sync with Server</span>
+              </button>
+            </div>
+          </div>
+
+          <div id="players-list-container" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            <!-- Dynamically populated or empty state -->
+          </div>
+        </div>
+      </section>
+
+      <!-- ================================================================= -->
+      <!-- TAB 4: server.properties (Admin Only - Hidden by Default)        -->
+      <!-- ================================================================= -->
+      <section id="tab-content-properties" class="tab-pane hidden flex-1 min-h-0 flex flex-col p-4 sm:p-6 overflow-y-auto custom-scroll">
+        <div class="max-w-4xl w-full mx-auto space-y-5 pb-8">
+          
+          <div class="flex flex-wrap items-center justify-between gap-3 bg-zinc-900/70 border border-zinc-800/80 p-4 rounded-xl">
+            <div>
+              <h2 class="text-base font-bold text-white flex items-center gap-2">
+                <span>⚙</span> server.properties Configuration
+              </h2>
+              <p class="text-xs text-zinc-400">Edit core server configuration keys safely while preserving comments and custom settings.</p>
+            </div>
+            <div class="flex items-center space-x-2">
+              <button
+                id="btn-reload-props"
+                type="button"
+                class="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs rounded-lg transition-colors"
+              >
+                Reload from Disk
+              </button>
+              <button
+                id="btn-save-props"
+                type="button"
+                class="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-medium rounded-lg transition-colors shadow"
+              >
+                Save Changes
+              </button>
+              <button
+                id="btn-save-restart-props"
+                type="button"
+                class="px-3.5 py-1.5 bg-sky-600 hover:bg-sky-500 text-white text-xs font-medium rounded-lg transition-colors shadow"
+              >
+                Save &amp; Restart
+              </button>
+            </div>
+          </div>
+
+          <div id="props-notification" class="hidden p-3 rounded-lg text-xs"></div>
+
+          <form id="form-properties" class="space-y-4">
+            <!-- Server Identity & Access -->
+            <div class="bg-zinc-900/60 border border-zinc-800/80 rounded-xl p-4 sm:p-5 space-y-4">
+              <h3 class="text-xs font-bold uppercase tracking-wider text-emerald-400">Server Identity &amp; Access</h3>
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div class="md:col-span-2">
+                  <label class="block text-xs font-medium text-zinc-300 mb-1">Message of the Day (motd)</label>
+                  <input type="text" id="prop-motd" class="w-full px-3 py-2 bg-zinc-950 border border-zinc-800 rounded-lg text-xs sm:text-sm text-white font-mono">
+                </div>
+                <div>
+                  <label class="block text-xs font-medium text-zinc-300 mb-1">Max Players (max-players)</label>
+                  <input type="number" id="prop-max-players" min="1" max="10000" class="w-full px-3 py-2 bg-zinc-950 border border-zinc-800 rounded-lg text-xs sm:text-sm text-white">
+                </div>
+                <div class="flex items-center justify-between p-3 bg-zinc-950/60 border border-zinc-800/60 rounded-lg">
+                  <div>
+                    <span class="block text-xs font-medium text-white">Whitelist (white-list)</span>
+                    <span class="text-[11px] text-zinc-400">Restrict access to players on whitelist.json</span>
+                  </div>
+                  <label class="relative inline-flex items-center cursor-pointer">
+                    <input type="checkbox" id="prop-white-list" class="sr-only peer">
+                    <div class="w-9 h-5 bg-zinc-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-zinc-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-600"></div>
+                  </label>
+                </div>
+                <div class="md:col-span-2 flex items-center justify-between p-3.5 bg-zinc-950/80 border border-emerald-900/40 rounded-lg">
+                  <div>
+                    <span class="block text-xs font-semibold text-white flex items-center gap-2">
+                      <span>Online Mode (online-mode)</span>
+                      <span id="badge-cracked" class="px-1.5 py-0.2 rounded text-[10px] font-mono bg-zinc-800 text-zinc-300">Auth Enabled</span>
+                    </span>
+                    <span class="text-[11px] text-zinc-400">Turn OFF to allow Cracked / Offline mode players to join without official Mojang authentication.</span>
+                  </div>
+                  <label class="relative inline-flex items-center cursor-pointer ml-4">
+                    <input type="checkbox" id="prop-online-mode" class="sr-only peer">
+                    <div class="w-11 h-6 bg-zinc-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-zinc-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
+                  </label>
+                </div>
+              </div>
+            </div>
+
+            <!-- Gameplay Rules -->
+            <div class="bg-zinc-900/60 border border-zinc-800/80 rounded-xl p-4 sm:p-5 space-y-4">
+              <h3 class="text-xs font-bold uppercase tracking-wider text-emerald-400">Gameplay Rules</h3>
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label class="block text-xs font-medium text-zinc-300 mb-1">Default Gamemode (gamemode)</label>
+                  <select id="prop-gamemode" class="w-full px-3 py-2 bg-zinc-950 border border-zinc-800 rounded-lg text-xs sm:text-sm text-white">
+                    <option value="survival">Survival</option>
+                    <option value="creative">Creative</option>
+                    <option value="adventure">Adventure</option>
+                    <option value="spectator">Spectator</option>
+                  </select>
+                </div>
+                <div>
+                  <label class="block text-xs font-medium text-zinc-300 mb-1">Difficulty (difficulty)</label>
+                  <select id="prop-difficulty" class="w-full px-3 py-2 bg-zinc-950 border border-zinc-800 rounded-lg text-xs sm:text-sm text-white">
+                    <option value="peaceful">Peaceful</option>
+                    <option value="easy">Easy</option>
+                    <option value="normal">Normal</option>
+                    <option value="hard">Hard</option>
+                  </select>
+                </div>
+                <div class="flex items-center justify-between p-3 bg-zinc-950/60 border border-zinc-800/60 rounded-lg">
+                  <div>
+                    <span class="block text-xs font-medium text-white">PvP Combat (pvp)</span>
+                    <span class="text-[11px] text-zinc-400">Allow players to attack each other</span>
+                  </div>
+                  <label class="relative inline-flex items-center cursor-pointer">
+                    <input type="checkbox" id="prop-pvp" class="sr-only peer">
+                    <div class="w-9 h-5 bg-zinc-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-zinc-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-600"></div>
+                  </label>
+                </div>
+                <div class="flex items-center justify-between p-3 bg-zinc-950/60 border border-zinc-800/60 rounded-lg">
+                  <div>
+                    <span class="block text-xs font-medium text-white">Allow Flight (allow-flight)</span>
+                    <span class="text-[11px] text-zinc-400">Prevent kicks for survival flight mods</span>
+                  </div>
+                  <label class="relative inline-flex items-center cursor-pointer">
+                    <input type="checkbox" id="prop-allow-flight" class="sr-only peer">
+                    <div class="w-9 h-5 bg-zinc-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-zinc-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-600"></div>
+                  </label>
+                </div>
+              </div>
+            </div>
+
+            <!-- Performance & View Distance -->
+            <div class="bg-zinc-900/60 border border-zinc-800/80 rounded-xl p-4 sm:p-5 space-y-4">
+              <h3 class="text-xs font-bold uppercase tracking-wider text-emerald-400">Performance &amp; Distance</h3>
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label class="block text-xs font-medium text-zinc-300 mb-1">View Distance (view-distance: 2-32)</label>
+                  <input type="number" id="prop-view-distance" min="2" max="32" class="w-full px-3 py-2 bg-zinc-950 border border-zinc-800 rounded-lg text-xs sm:text-sm text-white">
+                </div>
+                <div>
+                  <label class="block text-xs font-medium text-zinc-300 mb-1">Simulation Distance (simulation-distance: 2-32)</label>
+                  <input type="number" id="prop-simulation-distance" min="2" max="32" class="w-full px-3 py-2 bg-zinc-950 border border-zinc-800 rounded-lg text-xs sm:text-sm text-white">
+                </div>
+              </div>
+            </div>
+
+            <div class="flex items-center justify-end space-x-3 pt-2">
+              <button id="btn-save-props-bottom" type="button" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-medium rounded-lg transition-colors shadow">Save Changes</button>
+              <button id="btn-save-restart-props-bottom" type="button" class="px-4 py-2 bg-sky-600 hover:bg-sky-500 text-white text-xs font-medium rounded-lg transition-colors shadow">Save &amp; Restart Server</button>
+            </div>
+          </form>
+
+        </div>
+
+        <!-- ================================================================= -->
+        <!-- PLUGIN MANAGER (merged into Properties & Plugins tab)             -->
+        <!-- ================================================================= -->
+        <div class="max-w-5xl w-full mx-auto space-y-5 pb-8">
+          
+          <div id="plugin-upload-card" class="bg-zinc-900/70 border border-zinc-800/80 p-4 sm:p-5 rounded-xl space-y-4">
+            <div>
+              <h2 class="text-base font-bold text-white flex items-center gap-2">
+                <span>🧩</span> Plugin Manager
+              </h2>
+              <p class="text-xs text-zinc-400">Install, enable/disable, or delete plugins located in <code class="text-emerald-400 font-mono">../plugins/</code>.</p>
+            </div>
+
+            <form id="form-upload-plugin" class="flex flex-col sm:flex-row items-center gap-3">
+              <div
+                id="plugin-dropzone"
+                class="flex-1 w-full relative border-2 border-dashed border-zinc-700 hover:border-emerald-600/70 rounded-lg p-1 transition-colors"
+              >
+                <input
+                  type="file"
+                  id="plugin-file-input"
+                  accept=".jar,.disabled"
+                  class="w-full text-xs text-zinc-400 file:mr-3 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-zinc-800 file:text-zinc-200 hover:file:bg-zinc-700 cursor-pointer bg-zinc-950 border border-zinc-800 rounded-lg p-1.5 focus:outline-none"
+                  required
+                >
+                <div class="pointer-events-none absolute inset-0 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity">
+                  <span class="text-[11px] font-semibold text-emerald-300 bg-zinc-950/90 px-3 py-1 rounded border border-emerald-700/50">Drop .jar to upload</span>
+                </div>
+              </div>
+              <button
+                type="submit"
+                id="btn-upload-plugin"
+                class="w-full sm:w-auto px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-medium rounded-lg transition-colors shadow flex items-center justify-center space-x-1.5 shrink-0"
+              >
+                <span>↑ Upload .jar</span>
+              </button>
+            </form>
+            <p class="text-[11px] text-zinc-500">You can also drag &amp; drop a <code class="text-zinc-400">.jar</code> file anywhere onto this card.</p>
+
+            <div id="plugin-upload-status" class="hidden p-2.5 rounded-lg text-xs"></div>
+          </div>
+
+          <div class="bg-zinc-900/60 border border-zinc-800/80 rounded-xl overflow-hidden shadow">
+            <div class="px-4 py-3 bg-zinc-900/90 border-b border-zinc-800 flex items-center justify-between gap-3">
+              <div class="flex items-center space-x-2">
+                <span class="text-xs font-bold uppercase tracking-wider text-zinc-300">Installed Plugins</span>
+                <span id="plugins-table-count" class="text-xs font-mono text-zinc-500">(0)</span>
+              </div>
+              <button id="btn-refresh-plugins" class="px-2.5 py-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs rounded transition-colors">↻ Refresh</button>
+            </div>
+
+            <div class="overflow-x-auto">
+              <table class="w-full text-left text-xs">
+                <thead class="bg-zinc-950/60 text-zinc-400 uppercase font-mono text-[11px] border-b border-zinc-800">
+                  <tr>
+                    <th class="px-4 py-3">Plugin Name</th>
+                    <th class="px-4 py-3">Status</th>
+                    <th class="px-4 py-3">File Size</th>
+                    <th class="px-4 py-3 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="plugins-table-body" class="divide-y divide-zinc-800/60 text-zinc-300 font-mono">
+                  <!-- Dynamically populated -->
+                </tbody>
+              </table>
+            </div>
+
+            <div id="plugins-empty" class="hidden p-8 text-center text-zinc-500 text-xs font-sans">
+              No plugins found in <code class="text-zinc-400">../plugins/</code>. Upload a .jar file above to install a plugin.
+            </div>
+          </div>
+
+          <div class="p-3 bg-zinc-950/70 border border-zinc-800/80 rounded-lg text-xs text-zinc-400">
+            <span class="text-amber-400 font-semibold">Note:</span> A server restart is required for Paper to register or unload plugin changes.
+          </div>
+
+        </div>
+      </section>
+
+    </main>
+
+    <!-- Bottom Footer (Contains Subtle Secret Admin Lock Icon in Bottom-Right) -->
+    <footer class="bg-zinc-900/90 border-t border-zinc-800 px-4 py-1.5 flex items-center justify-between text-[11px] text-zinc-500 shrink-0 select-none">
+      <div class="flex items-center space-x-2">
+        <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+        <span>Paper 1.21.1 Background Instance</span>
+      </div>
+
+      <div class="flex items-center space-x-2">
+        <span>Paper 1.21.1 • ServerPanelBridge</span>
+      </div>
+    </footer>
+
+  </div>
+
+  <!-- Live Inventory Modal (Admin Only) -->
+  <div id="inventory-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-2 sm:p-4">
+    <div class="max-w-4xl w-full max-h-[92vh] flex flex-col bg-[#11141c] border-2 border-zinc-700/80 rounded-2xl shadow-2xl overflow-hidden">
+      
+      <!-- Modal Header -->
+      <div class="px-4 py-3 bg-zinc-900/90 border-b border-zinc-800 flex flex-wrap items-center justify-between gap-3 shrink-0">
+        <div class="flex items-center space-x-3">
+          <img
+            id="inv-player-avatar"
+            src="https://minotar.net/helm/Steve/64.png"
+            alt="Avatar"
+            class="w-10 h-10 rounded-lg bg-zinc-950 border border-zinc-700 shadow"
+          >
+          <div>
+            <div class="flex items-center space-x-2">
+              <h2 id="inv-player-name" class="text-base font-bold text-white font-mono">Player</h2>
+              <span id="inv-player-gamemode" class="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-zinc-800 text-zinc-300">SURVIVAL</span>
+            </div>
+            <div class="flex items-center space-x-3 text-xs text-zinc-400 mt-0.5">
+              <span id="inv-player-hp" class="text-rose-400 font-mono">❤️ 20.0 / 20.0 HP</span>
+              <span>•</span>
+              <span id="inv-player-food" class="text-amber-400 font-mono">🍖 20 Food</span>
+              <span>•</span>
+              <span id="inv-player-coords" class="text-zinc-400 font-mono text-[11px]">📍 0, 0, 0 (world)</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="flex items-center space-x-2">
+          <button
+            id="btn-inv-give-item"
+            type="button"
+            class="px-3 py-1.5 bg-emerald-600/90 hover:bg-emerald-500 text-white rounded-lg text-xs font-medium transition-colors flex items-center space-x-1"
+          >
+            <span>+ Give Item</span>
+          </button>
+          <button
+            id="btn-inv-refresh"
+            type="button"
+            class="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 rounded-lg text-xs font-medium transition-colors"
+          >
+            ↻ Refresh
+          </button>
+          <button
+            id="btn-inv-close"
+            type="button"
+            class="w-8 h-8 flex items-center justify-center rounded-lg bg-zinc-800/80 hover:bg-zinc-700 text-zinc-400 hover:text-white transition-colors text-sm font-bold"
+          >
+            ✕
+          </button>
+        </div>
+      </div>
+
+      <!-- Modal Body (Scrollable) -->
+      <div class="flex-1 overflow-y-auto custom-scroll p-4 space-y-5 select-none min-h-0 bg-[#0d1017]">
+        <div id="inv-error-banner" class="hidden p-3 bg-red-950/60 border border-red-600/40 rounded-xl text-xs text-red-200 flex items-center justify-between">
+          <span id="inv-error-text">Failed to fetch inventory from Paper bridge.</span>
+          <button id="btn-inv-retry" type="button" class="px-2.5 py-1 bg-red-900/80 hover:bg-red-800 text-white rounded text-xs">Retry</button>
+        </div>
+
+        <!-- Player Inventory (Slots 0 - 40) -->
+        <div class="bg-zinc-900/50 border border-zinc-800/80 rounded-xl p-4">
+          <div class="text-xs font-bold uppercase tracking-wider text-emerald-400 mb-3 flex items-center justify-between">
+            <span>Player Inventory (Slots 0 - 40)</span>
+            <span class="text-[11px] font-normal text-zinc-400">Drag to move • Click to edit</span>
+          </div>
+
+          <div class="flex flex-col lg:flex-row items-center justify-center gap-6">
+            <!-- Equipment: Armor & Off-hand -->
+            <div class="flex flex-row lg:flex-col items-center gap-2 bg-zinc-950/70 p-3 rounded-xl border border-zinc-800/80">
+              <span class="text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-1">Equipment</span>
+              <div class="flex lg:flex-col gap-2">
+                <div id="slot-armor-39" data-type="inv" data-slot="39" class="inv-slot" title="Helmet (Slot 39)">
+                  <span class="slot-placeholder text-lg opacity-30 pointer-events-none">🪖</span>
+                </div>
+                <div id="slot-armor-38" data-type="inv" data-slot="38" class="inv-slot" title="Chestplate (Slot 38)">
+                  <span class="slot-placeholder text-lg opacity-30 pointer-events-none">🦺</span>
+                </div>
+                <div id="slot-armor-37" data-type="inv" data-slot="37" class="inv-slot" title="Leggings (Slot 37)">
+                  <span class="slot-placeholder text-lg opacity-30 pointer-events-none">👖</span>
+                </div>
+                <div id="slot-armor-36" data-type="inv" data-slot="36" class="inv-slot" title="Boots (Slot 36)">
+                  <span class="slot-placeholder text-lg opacity-30 pointer-events-none">👢</span>
+                </div>
+              </div>
+              <div class="mt-2 pt-2 border-t border-zinc-800 flex lg:flex-col items-center">
+                <div id="slot-offhand-40" data-type="inv" data-slot="40" class="inv-slot" title="Off-hand (Slot 40)">
+                  <span class="slot-placeholder text-lg opacity-30 pointer-events-none">🛡</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Main Inventory Grid & Hotbar -->
+            <div class="flex flex-col items-center gap-2 bg-zinc-950/70 p-3 sm:p-4 rounded-xl border border-zinc-800/80">
+              <span class="text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-1">Main Storage (Slots 9 - 35)</span>
+              <div id="grid-main-inv" class="grid grid-cols-9 gap-1.5 sm:gap-2"></div>
+              
+              <div class="w-full flex items-center my-1.5 space-x-2">
+                <div class="flex-1 h-px bg-zinc-800"></div>
+                <span class="text-[10px] font-bold text-emerald-400 uppercase tracking-wider font-mono">Hotbar (0 - 8)</span>
+                <div class="flex-1 h-px bg-zinc-800"></div>
+              </div>
+              
+              <div id="grid-hotbar-inv" class="grid grid-cols-9 gap-1.5 sm:gap-2"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Ender Chest (Slots 0 - 26) -->
+        <div class="bg-zinc-900/50 border border-zinc-800/80 rounded-xl p-4">
+          <div class="text-xs font-bold uppercase tracking-wider text-purple-400 mb-3 flex items-center justify-between">
+            <span class="flex items-center gap-1.5">
+              <span>🔮</span> Ender Chest Storage (Slots 0 - 26)
+            </span>
+            <span class="text-[11px] font-normal text-zinc-400">Drag to/from player inventory</span>
+          </div>
+          <div class="flex justify-center bg-zinc-950/70 p-3 sm:p-4 rounded-xl border border-zinc-800/80">
+            <div id="grid-enderchest" class="grid grid-cols-9 gap-1.5 sm:gap-2"></div>
+          </div>
+        </div>
+
+      </div>
+
+      <div class="px-4 py-2.5 bg-zinc-900/80 border-t border-zinc-800 flex items-center justify-between text-[11px] text-zinc-400 shrink-0">
+        <span>💡 <strong>Tip:</strong> Drag &amp; drop between any slots to move or swap. Click any slot to modify or clear.</span>
+        <button id="btn-inv-close-bottom" type="button" class="text-zinc-300 hover:text-white underline">Close</button>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Slot Edit Modal (Admin Only) -->
+  <div id="slot-edit-modal" class="hidden fixed inset-0 z-[60] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+    <div class="w-full max-w-md bg-zinc-900 border-2 border-zinc-700 rounded-xl shadow-2xl p-5 space-y-4">
+      <div class="flex items-center justify-between border-b border-zinc-800 pb-3">
+        <div>
+          <h3 id="slot-edit-title" class="text-sm font-bold text-white font-mono">Edit Slot</h3>
+          <p id="slot-edit-current" class="text-xs text-zinc-400 font-mono">Current: Empty</p>
+        </div>
+        <button id="btn-slot-edit-close" type="button" class="text-zinc-400 hover:text-white text-base">✕</button>
+      </div>
+
+      <div class="space-y-3">
+        <label class="block text-xs font-bold text-zinc-300 uppercase tracking-wider">Set or Replace Item</label>
+        <div>
+          <input
+            type="text"
+            id="slot-edit-material"
+            placeholder="e.g. DIAMOND_SWORD, GOLDEN_APPLE"
+            class="w-full px-3 py-2 bg-zinc-950 border border-zinc-800 rounded-lg text-xs font-mono text-white focus:outline-none focus:border-emerald-500 uppercase"
+          >
+        </div>
+
+        <div class="flex flex-wrap gap-1.5">
+          <button type="button" class="btn-quick-mat px-2 py-0.5 rounded text-[10px] font-mono bg-zinc-800 hover:bg-zinc-700 text-zinc-300" data-mat="DIAMOND_SWORD">DIAMOND_SWORD</button>
+          <button type="button" class="btn-quick-mat px-2 py-0.5 rounded text-[10px] font-mono bg-zinc-800 hover:bg-zinc-700 text-zinc-300" data-mat="NETHERITE_CHESTPLATE">NETHERITE_CHESTPLATE</button>
+          <button type="button" class="btn-quick-mat px-2 py-0.5 rounded text-[10px] font-mono bg-zinc-800 hover:bg-zinc-700 text-zinc-300" data-mat="GOLDEN_APPLE">GOLDEN_APPLE</button>
+          <button type="button" class="btn-quick-mat px-2 py-0.5 rounded text-[10px] font-mono bg-zinc-800 hover:bg-zinc-700 text-zinc-300" data-mat="ENDER_PEARL">ENDER_PEARL</button>
+          <button type="button" class="btn-quick-mat px-2 py-0.5 rounded text-[10px] font-mono bg-zinc-800 hover:bg-zinc-700 text-zinc-300" data-mat="BOW">BOW</button>
+          <button type="button" class="btn-quick-mat px-2 py-0.5 rounded text-[10px] font-mono bg-zinc-800 hover:bg-zinc-700 text-zinc-300" data-mat="ARROW">ARROW</button>
+          <button type="button" class="btn-quick-mat px-2 py-0.5 rounded text-[10px] font-mono bg-zinc-800 hover:bg-zinc-700 text-zinc-300" data-mat="TOTEM_OF_UNDYING">TOTEM_OF_UNDYING</button>
+          <button type="button" class="btn-quick-mat px-2 py-0.5 rounded text-[10px] font-mono bg-zinc-800 hover:bg-zinc-700 text-zinc-300" data-mat="COOKED_BEEF">COOKED_BEEF</button>
+        </div>
+
+        <div class="flex items-center space-x-2">
+          <label class="text-xs text-zinc-400">Count:</label>
+          <input
+            type="number"
+            id="slot-edit-amount"
+            min="1"
+            max="64"
+            value="1"
+            class="w-20 px-2 py-1 bg-zinc-950 border border-zinc-800 rounded text-xs font-mono text-white text-center"
+          >
+          <button
+            type="button"
+            id="btn-slot-set-item"
+            class="flex-1 py-1.5 px-3 bg-emerald-600 hover:bg-emerald-500 text-white font-medium rounded text-xs transition-colors"
+          >
+            Set Item in Slot
+          </button>
+        </div>
+      </div>
+
+      <div id="slot-edit-amount-section" class="pt-3 border-t border-zinc-800 flex items-center justify-between">
+        <span class="text-xs text-zinc-400">Update Current Count:</span>
+        <div class="flex items-center space-x-2">
+          <input
+            type="number"
+            id="slot-update-count-input"
+            min="1"
+            max="64"
+            value="1"
+            class="w-16 px-2 py-1 bg-zinc-950 border border-zinc-800 rounded text-xs font-mono text-white text-center"
+          >
+          <button
+            type="button"
+            id="btn-slot-update-count"
+            class="py-1 px-3 bg-sky-600 hover:bg-sky-500 text-white rounded text-xs transition-colors"
+          >
+            Update
+          </button>
+        </div>
+      </div>
+
+      <div class="pt-3 border-t border-zinc-800 flex items-center justify-between">
+        <button
+          type="button"
+          id="btn-slot-clear"
+          class="w-full py-1.5 bg-red-950/80 hover:bg-red-900 text-red-300 border border-red-800/60 rounded text-xs font-medium transition-colors"
+        >
+          🗑 Clear / Delete Slot
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Quick Give Modal (Admin Only) -->
+  <div id="quick-give-modal" class="hidden fixed inset-0 z-[60] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+    <div class="w-full max-w-sm bg-zinc-900 border-2 border-zinc-700 rounded-xl shadow-2xl p-5 space-y-4">
+      <div class="flex items-center justify-between border-b border-zinc-800 pb-3">
+        <h3 class="text-sm font-bold text-white">Give Item to Player</h3>
+        <button id="btn-quick-give-close" type="button" class="text-zinc-400 hover:text-white">✕</button>
+      </div>
+      <div class="space-y-3">
+        <div>
+          <label class="block text-xs font-bold text-zinc-300 uppercase tracking-wider mb-1">Material ID</label>
+          <input
+            type="text"
+            id="give-material-input"
+            placeholder="e.g. DIAMOND, GOLDEN_APPLE"
+            class="w-full px-3 py-2 bg-zinc-950 border border-zinc-800 rounded-lg text-xs font-mono text-white uppercase focus:outline-none focus:border-emerald-500"
+          >
+        </div>
+        <div>
+          <label class="block text-xs font-bold text-zinc-300 uppercase tracking-wider mb-1">Amount</label>
+          <input
+            type="number"
+            id="give-amount-input"
+            min="1"
+            max="64"
+            value="1"
+            class="w-full px-3 py-2 bg-zinc-950 border border-zinc-800 rounded-lg text-xs font-mono text-white text-center"
+          >
+        </div>
+        <button
+          type="button"
+          id="btn-submit-quick-give"
+          class="w-full py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-medium rounded-lg text-xs transition-colors"
+        >
+          Spawn into Inventory
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Passcode Modal (hidden trigger: Ctrl+Shift+Alt+A or 5 clicks on header title) -->
+  <div id="passcode-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+    <div class="w-full max-w-xs bg-zinc-900 border-2 border-zinc-700 rounded-xl shadow-2xl p-6 space-y-4">
+      <div class="flex items-center justify-between border-b border-zinc-800 pb-3">
+        <h2 class="text-sm font-bold text-white tracking-wide">Enter Passcode</h2>
+        <button id="btn-passcode-close" class="text-zinc-500 hover:text-white text-base">✕</button>
+      </div>
+      <div id="passcode-error" class="hidden p-2.5 bg-red-950/60 border border-red-600/40 rounded-lg text-xs text-red-200"></div>
+      <form id="passcode-form" class="space-y-3">
+        <input
+          type="password"
+          id="passcode-input"
+          autocomplete="off"
+          placeholder="••••••••••••"
+          class="w-full px-3 py-2 bg-zinc-950 border border-zinc-800 rounded-lg text-sm text-white focus:outline-none focus:border-emerald-500 transition-colors"
+          required
+        >
+        <div class="flex items-center space-x-2">
+          <button type="button" id="btn-passcode-cancel" class="flex-1 py-2 px-3 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-medium rounded-lg text-xs transition-colors">Cancel</button>
+          <button type="submit" class="flex-1 py-2 px-3 bg-emerald-600 hover:bg-emerald-500 text-white font-medium rounded-lg text-xs transition-colors shadow">Unlock</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Command Audit Log Modal -->
+  <div id="command-logs-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+    <div class="w-full max-w-3xl max-h-[85vh] flex flex-col bg-zinc-900 border-2 border-zinc-700 rounded-xl shadow-2xl overflow-hidden">
+      <div class="px-4 py-3 bg-zinc-950/80 border-b border-zinc-800 flex items-center justify-between shrink-0">
+        <div>
+          <h2 class="text-sm font-bold text-white">Command Audit Log</h2>
+          <p class="text-[11px] text-zinc-500">Latest entries from command-audit.log (newest first)</p>
+        </div>
+        <div class="flex items-center space-x-2">
+          <button id="btn-command-logs-refresh" class="px-2.5 py-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs rounded transition-colors">↻ Refresh</button>
+          <button id="btn-command-logs-close" class="w-8 h-8 flex items-center justify-center rounded-lg bg-zinc-800/80 hover:bg-zinc-700 text-zinc-400 hover:text-white text-sm font-bold">✕</button>
+        </div>
+      </div>
+      <pre id="command-log-content" class="flex-1 overflow-y-auto custom-scroll p-4 font-mono text-[11px] leading-relaxed text-zinc-300 whitespace-pre-wrap"></pre>
+    </div>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>

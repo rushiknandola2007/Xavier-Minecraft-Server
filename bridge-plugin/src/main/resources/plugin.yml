@@ -1,0 +1,6 @@
+name: ServerPanelBridge
+version: 1.0.0
+main: com.panel.bridge.BridgePlugin
+api-version: '1.21'
+description: Paper 1.21.1 bridge plugin for web panel inventory and player management
+author: ServerPanel

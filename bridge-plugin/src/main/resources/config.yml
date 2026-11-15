@@ -1,0 +1,6 @@
+# ServerPanelBridge configuration
+# Must match BRIDGE_SECRET in web-panel/.env
+secret: secret123
+
+# Localhost-only HTTP port the web panel connects to
+port: 8081
