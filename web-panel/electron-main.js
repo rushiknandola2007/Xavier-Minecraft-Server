@@ -11,7 +11,6 @@ const gotLock = app.requestSingleInstanceLock();
 app.disableHardwareAcceleration();
 
 let panelServer = null;
-const gitSync = require('./git-sync');
 
 app.on('second-instance', () => {
   if (mainWindow) {
@@ -100,6 +99,7 @@ async function createWindow() {
 
   // Safe shutdown: if the Minecraft server is still running when the window's
   // X button is clicked, offer to stop it gracefully so the world never corrupts.
+  // No Git push happens here — sync is manual-only via the panel buttons.
   mainWindow.on('close', async (event) => {
     if (isQuitting) return;
 
@@ -110,37 +110,28 @@ async function createWindow() {
 
       const { response } = await dialog.showMessageBox(mainWindow, {
         type: 'warning',
-        buttons: ['Stop Server & Push to GitHub', 'Force Kill & Push', 'Cancel'],
+        buttons: ['Stop Server & Close', 'Cancel'],
         defaultId: 0,
-        cancelId: 2,
+        cancelId: 1,
         title: 'Minecraft Server Still Running',
         message: 'The Minecraft server is still running.',
         detail: 'Closing now without a safe stop can corrupt the world. ' +
-                'Choose "Stop Server & Push to GitHub" to shut it down gracefully and push your save first.'
+                'Choose "Stop Server & Close" to shut it down gracefully first.'
       });
 
-      if (response === 2) return; // cancelled — keep window open
+      if (response === 1) return; // cancelled — keep window open
 
       isQuitting = true;
+      try { panelServer.stopMinecraftServer(); } catch (_) {}
 
-      if (response === 1) {
-        try { panelServer.forceKillMinecraftServer(); } catch (_) {}
-      } else {
-        try { panelServer.stopMinecraftServer(); } catch (_) {}
-      }
-
-      // Wait for paper.jar to fully exit (releases world/session.lock), then push
+      // Wait for paper.jar to fully exit (releases world/session.lock)
       await panelServer.waitForServerOffline(90000);
-      await gitSync.pushLatest('app-close', false);
       app.exit(0);
       return;
     }
 
-    // Server already Offline — still push manual config/plugin edits before quit
-    event.preventDefault();
+    // Server already Offline — close immediately, no Git push
     isQuitting = true;
-    await gitSync.pushLatest('app-close', false);
-    app.exit(0);
   });
 
   mainWindow.on('closed', () => {
@@ -151,10 +142,7 @@ async function createWindow() {
 app.whenReady().then(async () => {
   if (!gotLock) return;
 
-  // Auto-pull latest code BEFORE the panel server starts so updates load now
-  try {
-    await gitSync.pullLatest(false);
-  } catch (_) {}
+  // Git sync is manual-only — open the panel immediately, no pull on startup
 
   // Start the internal backend Express + WebSocket server
   panelServer = require('./server.js');

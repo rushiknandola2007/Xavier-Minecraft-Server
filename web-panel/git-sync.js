@@ -8,7 +8,6 @@ const path = require('path');
 const fs = require('fs');
 
 const ROOT = path.resolve(__dirname, '..');
-const WEB_PANEL_DIR = __dirname;
 const AUDIT_LOG_PATH = path.join(__dirname, 'logs', 'command-audit.log');
 
 let isSyncing = false;

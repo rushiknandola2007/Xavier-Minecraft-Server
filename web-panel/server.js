@@ -394,8 +394,7 @@ function startMinecraftServer() {
     restartPending = false;
     setServerStatus('Offline');
 
-    // Auto-push world & config to GitHub once the process has fully exited
-    gitSync.pushLatest('server-stop', false).catch(() => {});
+    // No auto-push — Git sync is manual-only via the panel buttons
 
     if (wasRestart) {
       pushLog(`[Panel]: Restart initiated. Relaunching...`, 'system');
@@ -944,7 +943,7 @@ wss.on('connection', (ws, req) => {
   }));
 
   // Current git sync state for the friend-screen pill
-  ws.send(JSON.stringify(gitSync.getLastStatus()));
+  ws.send(JSON.stringify({ type: 'git_status', ...gitSync.getLastStatus() }));
 
   // Admin data (console logs, players, full status) is only sent after auth
   ws.on('message', (data) => {

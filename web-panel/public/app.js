@@ -399,6 +399,14 @@
     gitStatusText.textContent = message || '';
     gitStatusPill.className = 'px-2.5 py-1 rounded-full text-[11px] font-semibold border whitespace-nowrap ';
     switch (s) {
+      case 'ready':
+        gitStatusPill.classList.add('bg-zinc-800', 'border-zinc-700', 'text-zinc-400');
+        gitStatusPill.textContent = 'Git: Ready (Manual Sync)';
+        break;
+      case 'pulling':
+        gitStatusPill.classList.add('bg-sky-950/60', 'border-sky-700/50', 'text-sky-300');
+        gitStatusPill.textContent = 'Git: Pulling…';
+        break;
       case 'synced':
         gitStatusPill.classList.add('bg-emerald-950/60', 'border-emerald-700/50', 'text-emerald-300');
         gitStatusPill.textContent = 'Git: Synced';
