@@ -13,3 +13,33 @@ web-panel/logs/
 bridge-plugin/target/
 plugins/ServerPanelBridge/config.yml
 plugins/.paper-remapped/
+world*/session.lock
+web-panel/Cache/
+web-panel/Code Cache/
+web-panel/GPUCache/
+web-panel/DawnGraphiteCache/
+web-panel/DawnWebGPUCache/
+web-panel/ShaderCache/
+web-panel/GrShaderCache/
+web-panel/Local Storage/
+web-panel/Session Storage/
+web-panel/blob_storage/
+web-panel/Network/
+web-panel/Shared Dictionary/
+web-panel/SharedStorage/
+web-panel/Crashpad/
+web-panel/BrowserMetrics/
+web-panel/component_crx_cache/
+web-panel/extensions_crx_cache/
+web-panel/optimization_guide*/
+web-panel/ZxcvbnData/
+web-panel/Subresource Filter/
+web-panel/hyphen-data/
+web-panel/MEIPreload/
+web-panel/PKIMetadata/
+web-panel/SSLErrorAssistant/
+web-panel/Trust Tokens/
+web-panel/WebStorage/
+web-panel/first_party_sets.db*
+web-panel/*.log
+web-panel/*.lock

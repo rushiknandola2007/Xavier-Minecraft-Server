@@ -19,6 +19,7 @@ import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.PlayerInventory;
 import org.bukkit.plugin.java.JavaPlugin;
+import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -136,7 +137,7 @@ public class BridgePlugin extends JavaPlugin {
                 root.addProperty("uuid", player.getUniqueId().toString());
                 root.addProperty("health", player.getHealth());
 
-                AttributeInstance maxHealthAttr = player.getAttribute(Attribute.GENERIC_MAX_HEALTH);
+                AttributeInstance maxHealthAttr = player.getAttribute(Attribute.MAX_HEALTH);
                 root.addProperty("maxHealth", maxHealthAttr != null ? maxHealthAttr.getValue() : 20.0);
                 root.addProperty("foodLevel", player.getFoodLevel());
                 root.addProperty("gamemode", player.getGameMode().name());
@@ -320,7 +321,7 @@ public class BridgePlugin extends JavaPlugin {
             obj.addProperty("amount", item.getAmount());
 
             if (item.hasItemMeta() && item.getItemMeta().hasDisplayName()) {
-                obj.addProperty("displayName", item.getItemMeta().getDisplayName());
+                obj.addProperty("displayName", PlainTextComponentSerializer.plainText().serialize(item.getItemMeta().displayName()));
             } else {
                 obj.add("displayName", JsonNull.INSTANCE);
             }

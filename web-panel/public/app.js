@@ -868,13 +868,13 @@
   function getItemIconUrl(material) {
     if (!material) return '';
     const clean = material.replace('minecraft:', '').toLowerCase();
-    return `https://assets.mcasset.cloud/1.21.1/assets/minecraft/textures/item/${clean}.png`;
+    return `https://assets.mcasset.cloud/26.3/assets/minecraft/textures/item/${clean}.png`;
   }
 
   function getItemBlockIconUrl(material) {
     if (!material) return '';
     const clean = material.replace('minecraft:', '').toLowerCase();
-    return `https://assets.mcasset.cloud/1.21.1/assets/minecraft/textures/block/${clean}.png`;
+    return `https://assets.mcasset.cloud/26.3/assets/minecraft/textures/block/${clean}.png`;
   }
 
   function setupSlotElement(slotEl, type, slotIndex, item, placeholderIcon = '') {

@@ -27,6 +27,7 @@ const BRIDGE_URL = process.env.BRIDGE_URL || 'http://127.0.0.1:8081';
 
 const SERVER_DIR = path.resolve(__dirname, '..');
 const JAR_NAME = 'paper.jar';
+const JAVA_BIN = process.env.PANEL_JAVA_BIN || 'java';
 const PROPERTIES_PATH = path.join(SERVER_DIR, 'server.properties');
 const PLUGINS_DIR = path.join(SERVER_DIR, 'plugins');
 const OPS_PATH = path.join(SERVER_DIR, 'ops.json');
@@ -371,7 +372,7 @@ function startMinecraftServer() {
 
   const args = ['-Xms2G', '-Xmx4G', '-jar', JAR_NAME, '--nogui'];
 
-  minecraftProcess = spawn('java', args, {
+  minecraftProcess = spawn(JAVA_BIN, args, {
     cwd: SERVER_DIR,
     shell: false,
     windowsHide: true, // Silent execution with no CMD window
